@@ -1,0 +1,39 @@
+name: Build and publish macOS release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run timer and reminder checks
+        run: |
+          CLANG_MODULE_CACHE_PATH="$RUNNER_TEMP/module-cache" \
+          SWIFT_MODULECACHE_PATH="$RUNNER_TEMP/module-cache" \
+          swift run --disable-sandbox \
+            --scratch-path "$RUNNER_TEMP/swift-build" \
+            --cache-path "$RUNNER_TEMP/swift-cache" \
+            --config-path "$RUNNER_TEMP/swift-config" \
+            --security-path "$RUNNER_TEMP/swift-security" WorklightChecks
+
+      - name: Build universal app and DMG
+        run: bash PackageDMG.sh "$RUNNER_TEMP/Worklight-${GITHUB_REF_NAME#v}.dmg"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/Worklight-$VERSION.dmg" \
+            --title "WorkLight $VERSION" \
+            --generate-notes
