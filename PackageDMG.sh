@@ -6,6 +6,7 @@ build_root="${WORKLIGHT_BUILD_DIR:-$project_root/.build-local}"
 version="$(plutil -extract CFBundleShortVersionString raw "$project_root/Info.plist")"
 app_path="$project_root/dist/Worklight.app"
 output_path="${1:-$project_root/dist/Worklight-$version.dmg}"
+mkdir -p "$build_root"
 stage="$(mktemp -d "$build_root/dmg.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 
