@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.build-local/
+dist/
+screenshots/worklight-dashboard.png
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
