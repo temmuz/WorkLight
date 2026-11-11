@@ -30,7 +30,6 @@ public struct WorkTimer: Codable {
 
     public func remindersEligible(at date: Date, isAway: Bool, hasStorageError: Bool = false) -> Bool {
         mode == .paused && awayStart == nil && !isAway && !hasStorageError
-            && startedDays.contains(Self.dayKey(date))
     }
 
     public mutating func refreshDay(at date: Date, calendar: Calendar = .current) {

@@ -9,6 +9,7 @@ struct SavedState: Codable {
     var preferences: Preferences
     var targetNotifiedDays: Set<String>
     var reminder: ReminderClock? = nil
+    var reminderDay: String? = nil
 }
 
 @MainActor
@@ -22,7 +23,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     @Published var storageError: String?
     @Published var returnPromptVisible = false
     @Published private(set) var resumeReminderDue = false
-    @Published private(set) var reminderStatus = "Start a work session to enable paused reminders."
+    @Published private(set) var reminderStatus = "Reminders active while waiting to start work."
     @Published private(set) var launchAtLoginEnabled = false
     @Published private(set) var launchAtLoginAvailable = true
     @Published private(set) var launchAtLoginStatus = "Checking login item…"
@@ -34,6 +35,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     var showMenu: (() -> Void)?
     var onTick: (() -> Void)?
     private var reminder = ReminderClock()
+    private var reminderDay = WorkTimer.dayKey(Date())
     private var ticker: Timer?
     private var presence: PresenceMonitor?
     private var lastUptime = ProcessInfo.processInfo.systemUptime
@@ -64,7 +66,8 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
                 preferences = saved.preferences
                 targetNotifiedDays = saved.targetNotifiedDays
                 engine.recoverAfterLaunch(at: now)
-                reminder = saved.reminder ?? ReminderClock()
+                reminder = saved.reminderDay == WorkTimer.dayKey(now) ? (saved.reminder ?? ReminderClock()) : ReminderClock()
+                reminderDay = WorkTimer.dayKey(now)
                 restoredPaused = engine.mode == .paused
             }
         } catch {
@@ -83,8 +86,8 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         if engine.mode == .finished { return "DONE FOR TODAY" }
         if total >= target { return "DAILY TARGET REACHED" }
         if isRunning { return "TODAY · WORKING" }
+        if !engine.startedDays.contains(WorkTimer.dayKey(now)) { return resumeReminderDue ? "READY · START WORK?" : "READY WHEN YOU ARE" }
         if resumeReminderDue { return "PAUSED · RESUME WORK?" }
-        if !engine.startedDays.contains(WorkTimer.dayKey(now)) { return "READY WHEN YOU ARE" }
         if restoredPaused { return "PAUSED · READY TO RESUME" }
         return "TODAY · ON BREAK"
     }
@@ -111,6 +114,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private func tick() {
         now = Date()
         engine.refreshDay(at: now)
+        let dayKey = WorkTimer.dayKey(now)
+        if reminderDay != dayKey {
+            reminderDay = dayKey
+            resetReminder()
+        }
         let uptime = ProcessInfo.processInfo.systemUptime
         let elapsed = max(0, uptime - lastUptime)
         lastUptime = uptime
@@ -299,7 +307,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         engine.checkpoint(at: Date())
         do {
             try FileManager.default.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(SavedState(timer: engine, preferences: preferences, targetNotifiedDays: targetNotifiedDays, reminder: reminder))
+            let data = try JSONEncoder().encode(SavedState(timer: engine, preferences: preferences, targetNotifiedDays: targetNotifiedDays, reminder: reminder, reminderDay: reminderDay))
             try data.write(to: stateURL, options: .atomic)
         } catch {
             storageError = "Worklight could not save your time: \(error.localizedDescription)"
@@ -322,14 +330,15 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             reminderStatus = "Reminders quiet while your Mac is locked, asleep, or lid-closed."
         } else if isRunning {
             reminderStatus = "Counting work · no resume reminder needed."
-        } else if !engine.startedDays.contains(WorkTimer.dayKey(now)) {
-            reminderStatus = "Start a work session to enable paused reminders."
         } else if reminder.snoozeRemaining(at: now) > 0 {
             reminderStatus = "Reminders snoozed · \(clockString(reminder.snoozeRemaining(at: now))) remaining."
         } else if resumeReminderDue {
-            reminderStatus = "Resume reminder active · resume, snooze, or finish your day."
+            reminderStatus = engine.startedDays.contains(WorkTimer.dayKey(now))
+                ? "Resume reminder active · resume, snooze, or finish your day."
+                : "Start reminder active · start tracking or snooze for 10 minutes."
         } else {
-            reminderStatus = "Pulse in \(clockString(max(0, preferences.pulseMinutes * 60 - reminder.elapsedSeconds))) · notification after \(String(format: "%g", preferences.notificationMinutes)) min paused."
+            let activity = engine.startedDays.contains(WorkTimer.dayKey(now)) ? "paused" : "idle"
+            reminderStatus = "Pulse in \(clockString(max(0, preferences.pulseMinutes * 60 - reminder.elapsedSeconds))) · notification after \(String(format: "%g", preferences.notificationMinutes)) min \(activity)."
         }
     }
 
@@ -380,7 +389,10 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     private func sendReminder() {
         guard notificationsAllowed else { showFallbackReminder?(); return }
-        notify(id: "paused", title: "Back at work?", body: "Your work timer is paused. Resume it, or snooze for 10 minutes.", category: "PAUSED")
+        let started = engine.startedDays.contains(WorkTimer.dayKey(now))
+        notify(id: "paused", title: started ? "Back at work?" : "Ready to start work?",
+               body: started ? "Your work timer is paused. Resume it, or snooze for 10 minutes." : "Worklight isn't tracking yet. Start your timer, or snooze for 10 minutes.",
+               category: "PAUSED")
     }
 
     private func sendTarget() {

@@ -148,18 +148,26 @@ final class WorkTimerTests {
         expectTrue(r.takeNotification(after: 300))
     }
 
-    func testPausedRemindersDoNotRequireKeyboardActivity() {
+    func testReadyAndPausedRemindersDoNotRequireKeyboardActivity() {
         var timer = WorkTimer()
-        expectFalse(timer.remindersEligible(at: t, isAway: false))
+        // A new installation must remind even before the very first session.
+        expectTrue(timer.remindersEligible(at: t, isAway: false))
+        var reminder = ReminderClock()
+        reminder.advance(by: 120, eligible: timer.remindersEligible(at: t, isAway: false), now: t)
+        expectTrue(reminder.shouldPulse(after: 120, now: t))
+        reminder.advance(by: 180, eligible: timer.remindersEligible(at: t, isAway: false), now: t)
+        expectTrue(reminder.takeNotification(after: 300))
         timer.start(at: t)
         expectFalse(timer.remindersEligible(at: t, isAway: false))
         timer.pause(at: t.addingTimeInterval(60))
         expectTrue(timer.remindersEligible(at: t.addingTimeInterval(600), isAway: false))
         expectFalse(timer.remindersEligible(at: t, isAway: true))
         expectFalse(timer.remindersEligible(at: t, isAway: false, hasStorageError: true))
-        expectFalse(timer.remindersEligible(at: t.addingTimeInterval(86400), isAway: false))
         timer.finish(at: t.addingTimeInterval(600))
         expectFalse(timer.remindersEligible(at: t, isAway: false))
+        let tomorrow = t.addingTimeInterval(86400)
+        timer.refreshDay(at: tomorrow)
+        expectTrue(timer.remindersEligible(at: tomorrow, isAway: false))
     }
 
     func testCoalescedTimerTicksCountAllEligibleTime() {
@@ -212,7 +220,7 @@ checks.testNewDayIsQuietUntilStarted()
 checks.testRemindersOnlyAccumulateEligibleTimeAndSnoozeWorks()
 checks.testLockingAgainBeforeAnsweringExtendsUncertainInterval()
 checks.testNotificationRepeatRequiresTenMoreActiveMinutes()
-checks.testPausedRemindersDoNotRequireKeyboardActivity()
+checks.testReadyAndPausedRemindersDoNotRequireKeyboardActivity()
 checks.testCoalescedTimerTicksCountAllEligibleTime()
 checks.testPulseContinuesBetweenOldFourSecondWindows()
 try checks.testReminderProgressSurvivesRestart()
